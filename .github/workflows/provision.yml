@@ -23,10 +23,25 @@ jobs:
           # 2. Hash the extracted passcode text block using SHA-256
           STUDENT_HASH=$(echo -n "$STUDENT_PASS" | sha256sum | awk '{print $1}')
           
+          
+          # ==================== DEBUG LINES START ====================
+          echo "--- DEBUGGING PASSCODE PARSING ---"
+          echo "The script extracted this exact text block: [$STUDENT_PASS]"
+          
+          # Calculate and print the hash it generated from that text
+          STUDENT_HASH=$(echo -n "$STUDENT_PASS" | sha256sum | awk '{print $1}')
+          echo "The generated SHA-256 hash was: [$STUDENT_HASH]"
+          echo "The target expected hash is:   [$EXPECTED_HASH]"
+          echo "----------------------------------"
+          # ==================== DEBUG LINES END ====================
+          
+          
+          
           # 3. Perform the cryptographic mismatch evaluation check
           if [ "$STUDENT_HASH" != "$EXPECTED_HASH" ]; then
             echo "AUTH_FAILED=true" >> $GITHUB_ENV
             echo "::error::Invalid class passcode submitted."
+            echo STUDENT_PASS
           else
             echo "AUTH_FAILED=false" >> $GITHUB_ENV
           fi
