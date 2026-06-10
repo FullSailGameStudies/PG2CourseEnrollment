@@ -137,6 +137,11 @@ jobs:
           git checkout -b feedback
           git push origin feedback
           
+          # Create an empty commit so the PR has something to compare against          
+          git checkout master
+          git commit --allow-empty -m "Initialize assignment feedback environment"
+          git push origin master
+          
           gh pr create \
             --repo "$ORG/$NEW_REPO_NAME" \
             --title "Grading & Feedback" \
