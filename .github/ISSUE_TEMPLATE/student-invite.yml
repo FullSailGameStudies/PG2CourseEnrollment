@@ -1,16 +1,17 @@
 name: Request Assignment Repository
 description: Instantly provision your private assignment repository using your active GitHub account.
+title: "Repo Request: ${{ github.actor }}" # <--- ADD THIS LINE EXACTLY
 labels: ["provision-repo"]
 body:
   - type: markdown
     attributes:
       value: |
-        ### Welcome to the PG2 Course!
+        ### Welcome to the Course!
         Clicking submit below will automatically create your personal repository under our organization using the active GitHub account you are currently logged into (**@${{ github.actor }}**).
   - type: input
     id: passcode
     attributes:
-      label: PG2 Passcode
-      placeholder: Enter the secret passcode provided in the GitHub assignment.
+      label: Class Passcode
+      placeholder: Enter the secret passcode provided in class or syllabus.
     validations:
       required: true
