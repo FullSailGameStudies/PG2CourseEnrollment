@@ -57,8 +57,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
-          gh issue comment $ISSUE_NUMBER --body "❌ **Repository Creation Failed:** The passcode you entered is incorrect. Please verify the code from the course page and try opening a new issue."
-          gh issue close $ISSUE_NUMBER --reason "not_planned"
+          gh issue comment $ISSUE_NUMBER \
+            --repo "$GITHUB_REPOSITORY" \
+            --body "❌ **Repository Creation Failed:** The passcode you entered is incorrect. Please verify the code from the course page and try opening a new issue."
+          gh issue close $ISSUE_NUMBER \
+            --repo "$GITHUB_REPOSITORY" \
+            --reason "not_planned"
           exit 1
 
       - name: Check If Repository Already Exists
@@ -85,13 +89,17 @@ jobs:
           STUDENT: ${{ github.event.issue.user.login }}
           NEW_REPO_NAME: "pg2-2607b-${{ github.event.issue.user.login }}"
         run: |
-          gh issue comment $ISSUE_NUMBER --body "⚠️ @$STUDENT You have already requested an assignment repository for this project. 
+          gh issue comment $ISSUE_NUMBER \
+            --repo "$GITHUB_REPOSITORY" \
+            --body "⚠️ @$STUDENT You have already requested an assignment repository for this project. 
           
           Your active private workspace is located here: **https://github.com**
           
           This duplicate request issue has been closed automatically to prevent overwriting your existing code."
           
-          gh issue close $ISSUE_NUMBER --reason "completed"
+          gh issue close $ISSUE_NUMBER \
+            --repo "$GITHUB_REPOSITORY" \
+            --reason "completed"
           exit 0 # Exit gracefully without failing the workflow run entirely
 
       - name: Generate and Invite
@@ -157,5 +165,9 @@ jobs:
           STUDENT: ${{ github.event.issue.user.login }}
           NEW_REPO_NAME: "pg2-2607b-${{ github.event.issue.user.login }}"
         run: |
-          gh issue comment $ISSUE_NUMBER --body "@${STUDENT}, Private repository successfully configured at **https://github.com/${ORG}/${NEW_REPO_NAME}**!"
-          gh issue close $ISSUE_NUMBER --reason "completed"
+          gh issue comment $ISSUE_NUMBER \
+            --repo "$GITHUB_REPOSITORY" \
+            --body "@${STUDENT}, Private repository successfully configured at **https://github.com/${ORG}/${NEW_REPO_NAME}**!"
+          gh issue close $ISSUE_NUMBER \
+            --repo "$GITHUB_REPOSITORY" \
+            --reason "completed"
