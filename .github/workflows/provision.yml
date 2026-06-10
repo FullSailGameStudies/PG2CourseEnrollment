@@ -144,7 +144,7 @@ jobs:
           
           gh pr create \
             --repo "$ORG/$NEW_REPO_NAME" \
-            --title "Grading & Feedback" \
+            --title "Grading and Feedback" \
             --body "This Pull Request tracks your progress. Instructors will leave reviews here. Do not close or merge." \
             --base "feedback" \
             --head "master"
@@ -157,5 +157,5 @@ jobs:
           STUDENT: ${{ github.event.issue.user.login }}
           NEW_REPO_NAME: "pg2-2607b-${{ github.event.issue.user.login }}"
         run: |
-          gh issue comment $ISSUE_NUMBER --body "@$STUDENT Private repository successfully configured at **https://github.com**!"
+          gh issue comment $ISSUE_NUMBER --body "@${STUDENT}, Private repository successfully configured at **https://github.com/${ORG}/${NEW_REPO_NAME}**!"
           gh issue close $ISSUE_NUMBER --reason "completed"
