@@ -1,0 +1,136 @@
+name: Provision Student Repository
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  create-repo:
+    if: contains(github.event.issue.labels.*.name, 'provision-repo')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Parse Passcode from Form
+        id: parse
+        uses: eddieebuchen/content-parser-action@v1
+        with:
+          content: ${{ github.event.issue.body }}
+
+      - name: Verify Passcode
+        env:
+          STUDENT_PASS: ${{ steps.parse.outputs.passcode }}
+          # PASTE YOUR EXPECTED SHA-256 HASH HERE BELOW:
+          EXPECTED_HASH: "fb2b36ed7162e713601a00534068a934ecc8ad15c974d4e4df6738a511ff2ba5"
+        run: |
+          CLEAN_PASS=$(echo -n "$STUDENT_PASS" | tr -d '[:space:]')
+          STUDENT_HASH=$(echo -n "$CLEAN_PASS" | sha256sum | awk '{print $1}')
+          
+          if [ "$STUDENT_HASH" != "$EXPECTED_HASH" ]; then
+            echo "AUTH_FAILED=true" >> $GITHUB_ENV
+            echo "::error::Invalid class passcode submitted."
+          else
+            echo "AUTH_FAILED=false" >> $GITHUB_ENV
+          fi
+
+      - name: Handle Invalid Passcode
+        if: env.AUTH_FAILED == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          gh issue comment $ISSUE_NUMBER --body "❌ **Repository Creation Failed:** The passcode you entered is incorrect. Please verify the code from the course page and try opening a new issue."
+          gh issue close $ISSUE_NUMBER --reason "not_planned"
+          exit 1
+
+      - name: Check If Repository Already Exists
+        id: repo_check
+        env:
+          GH_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN }}
+          ORG: "FullSailGameStudies"
+          NEW_REPO_NAME: "pg2-2607b-${{ github.event.issue.user.login }}"
+        run: |
+          # Check if the repository can be resolved by the GitHub CLI
+          if gh repo view "$ORG/$NEW_REPO_NAME" > /dev/null 2>&1; then
+            echo "REPO_EXISTS=true" >> $GITHUB_ENV
+            echo "::warning::Repository $ORG/$NEW_REPO_NAME already exists. Skipping creation."
+          else
+            echo "REPO_EXISTS=false" >> $GITHUB_ENV
+          fi
+
+      - name: Handle Duplicate Repository Request
+        if: env.REPO_EXISTS == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ORG: "FullSailGameStudies"
+          STUDENT: ${{ github.event.issue.user.login }}
+          NEW_REPO_NAME: "pg2-2607b-${{ github.event.issue.user.login }}"
+        run: |
+          gh issue comment $ISSUE_NUMBER --body "⚠️ @$STUDENT You have already requested an assignment repository for this project. 
+          
+          Your active private workspace is located here: **https://github.com**
+          
+          This duplicate request issue has been closed automatically to prevent overwriting your existing code."
+          
+          gh issue close $ISSUE_NUMBER --reason "completed"
+          exit 0 # Exit gracefully without failing the workflow run entirely
+
+      - name: Generate and Invite
+        # This step only executes if the passcode is correct AND the repo doesn't exist yet
+        env:
+          GH_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN }}
+          ORG: "FullSailGameStudies"
+          TEMPLATE_REPO: "PG2StudentRepo26.6"
+          STUDENT: ${{ github.event.issue.user.login }}
+          NEW_REPO_NAME: "pg2-2607b-${{ github.event.issue.user.login }}"
+        run: |
+          echo "Creating private repository $NEW_REPO_NAME from template..."
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            /repos/$ORG/$TEMPLATE_REPO/generate \
+            -f owner="$ORG" \
+            -f name="$NEW_REPO_NAME" \
+            -F private=true
+
+          sleep 5
+
+          echo "Adding student $STUDENT as a collaborator..."
+          gh api \
+            --method PUT \
+            -H "Accept: application/vnd.github+json" \
+            /repos/$ORG/$NEW_REPO_NAME/collaborators/$STUDENT \
+            -f permission='write'
+
+      - name: Initialize Feedback Branch and PR
+        env:
+          GH_TOKEN: ${{ secrets.ORG_ADMIN_TOKEN }}
+          ORG: "FullSailGameStudies"
+          NEW_REPO_NAME: "pg2-2607b-${{ github.event.issue.user.login }}"
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git clone https://x-access-token:${GH_TOKEN}@://github.com
+          cd $NEW_REPO_NAME
+          
+          git checkout master
+          git checkout -b feedback
+          git push origin feedback
+          
+          gh pr create \
+            --repo "$ORG/$NEW_REPO_NAME" \
+            --title "Grading & Feedback" \
+            --body "This Pull Request tracks your progress. Instructors will leave reviews here. Do not close or merge." \
+            --base "feedback" \
+            --head "master"
+
+      - name: Close Issue and Reply to Student
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ORG: "FullSailGameStudies"
+          STUDENT: ${{ github.event.issue.user.login }}
+          NEW_REPO_NAME: "pg2-2607b-${{ github.event.issue.user.login }}"
+        run: |
+          gh issue comment $ISSUE_NUMBER --body "@$STUDENT Private repository successfully configured at **https://github.com**!"
+          gh issue close $ISSUE_NUMBER --reason "completed"
