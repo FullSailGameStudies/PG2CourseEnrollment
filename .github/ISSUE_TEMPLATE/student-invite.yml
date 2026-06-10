@@ -1,6 +1,6 @@
 name: Request Assignment Repository
 description: Instantly provision your private assignment repository using your active GitHub account.
-title: "Repo Request: ${{ github.actor }}" # <--- ADD THIS LINE EXACTLY
+title: "Private Repository Request"
 labels: ["provision-repo"]
 body:
   - type: markdown
