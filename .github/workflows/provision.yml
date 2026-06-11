@@ -155,8 +155,7 @@ jobs:
             -f owner="$ORG" \
             -f name="$NEW_REPO_NAME" \
             -F private=true
-
-          # sleep 5
+            
           # Loops up to 15 times, waiting 3 seconds per attempt (45 seconds total max).
           # It queries the branches endpoint. If it returns an empty bracket '[]' or errors out, it continues waiting.
           for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
@@ -168,6 +167,9 @@ jobs:
             echo "Template copy in progress... waiting 3 seconds (Attempt $i/15)"
             sleep 3
           done
+
+          # Add an extra safety cushion sleep to ensure files are fully flushed to disk
+          sleep 5
 
           echo "Adding student $STUDENT as a collaborator..."
           gh api \
