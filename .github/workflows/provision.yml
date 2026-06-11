@@ -42,7 +42,7 @@ jobs:
           REDACTED_BODY=$(echo "$ISSUE_BODY" | sed "s/$STUDENT_EMAIL/[REDACTED_HASH: $STUDENT_HASH]/g")
           
           # Push the redacted text back to GitHub to instantly overwrite the public text record
-          gh issue edit $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --body "$REDACTED_BODY"
+          gh issue edit "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "$REDACTED_BODY"
           # ==================== PRIVACY REDACTION END ====================
 
 
