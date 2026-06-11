@@ -24,6 +24,7 @@ jobs:
         id: code_check
         env:
           ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # 1. Parse the email input block following the Markdown form title
@@ -34,8 +35,7 @@ jobs:
           
           # 2. Normalize to lowercase and cryptographically hash the student email
           CLEAN_EMAIL=$(echo "$STUDENT_EMAIL" | tr '[:upper:]' '[:lower:]')
-          STUDENT_HASH=$(echo -n "$CLEAN_EMAIL" | sha256sum | awk '{print $1}')
-          
+          STUDENT_HASH=$(echo -n "$CLEAN_EMAIL" | sha256sum | awk '{print $1}')          
           
           # ==================== PRIVACY REDACTION START ====================
           # Create an obfuscated version of the issue body, swapping plaintext for the hash
@@ -46,8 +46,7 @@ jobs:
           gh issue edit "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "$REDACTED_BODY"
           # ==================== PRIVACY REDACTION END ====================
 
-
-          
+                    
           echo "Checking if email hash exists on the course roster..."
           
           # 3. Look for the generated hash inside our public pg2Info.txt file
