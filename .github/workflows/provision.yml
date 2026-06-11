@@ -35,6 +35,18 @@ jobs:
           CLEAN_EMAIL=$(echo "$STUDENT_EMAIL" | tr '[:upper:]' '[:lower:]')
           STUDENT_HASH=$(echo -n "$CLEAN_EMAIL" | sha256sum | awk '{print $1}')
           
+          
+          # ==================== PRIVACY REDACTION START ====================
+          # Create an obfuscated version of the issue body, swapping plaintext for the hash
+          # This replaces the student's actual email text with their scrambled hash block
+          REDACTED_BODY=$(echo "$ISSUE_BODY" | sed "s/$STUDENT_EMAIL/[REDACTED_HASH: $STUDENT_HASH]/g")
+          
+          # Push the redacted text back to GitHub to instantly overwrite the public text record
+          gh issue edit $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --body "$REDACTED_BODY"
+          # ==================== PRIVACY REDACTION END ====================
+
+
+          
           echo "Checking if email hash exists on the course roster..."
           
           # 3. Look for the generated hash inside our public pg2Info.txt file
