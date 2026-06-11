@@ -156,7 +156,16 @@ jobs:
             -f name="$NEW_REPO_NAME" \
             -F private=true
 
-          sleep 5
+          # sleep 5
+          # Loops up to 10 times (max 30 seconds), breaking out the instant files exist.
+          for i in {1..10}; do
+            if gh repo view "$ORG/$NEW_REPO_NAME" --json defaultBranchRef | grep -q "name"; then
+              echo "Repository files initialized successfully!"
+              break
+            fi
+            echo "Still initializing... waiting 3 seconds (Attempt $i/10)"
+            sleep 3
+          done
 
           echo "Adding student $STUDENT as a collaborator..."
           gh api \
