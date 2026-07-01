@@ -33,7 +33,7 @@ jobs:
             CLEAN_KEY=$(echo "${{ secrets.APP_PRIVATE_KEY }}" | sed 's/\\n/\n/g')
             
             # Extract the organization name parameter early for token routing
-            LOCAL_ORG=$(grep "# ORG_NAME:" codes.txt | head -n1 | sed 's/# ORG_NAME: //g' | tr -d '[:space:]')
+            LOCAL_ORG=$(grep "# ORG_NAME:" pg2Info.txt | head -n1 | sed 's/# ORG_NAME: //g' | tr -d '[:space:]')
             
             # Build cryptographic header and payload metadata for the JWT
             JWT_HDR=$(echo -n '{"alg":"RS256","typ":"JWT"}' | openssl base64 -e -A | tr -d '=' | tr '/+' '_-')
