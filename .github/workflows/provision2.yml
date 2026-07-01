@@ -24,6 +24,23 @@ jobs:
           ISSUE_BODY: ${{ github.event.issue.body }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 1. Store the entire Python script safely as a clean YAML multi-line string
+          TOKEN_SCRIPT: |
+            import os, time, base64, json
+            from cryptography.hazmat.primitives import serialization
+            from cryptography.hazmat.primitives.asymmetric import padding
+            from cryptography.hazmat.primitives import hashes
+
+            key_data = os.environ['CLEAN_KEY'].encode('utf-8')
+            private_key = serialization.load_pem_private_key(key_data, password=None)
+
+            header = base64.urlsafe_b64encode(json.dumps({'alg': 'RS256', 'typ': 'JWT'}).encode('utf-8')).decode('utf-8').rstrip('=')
+            payload = base64.urlsafe_b64encode(json.dumps({'iat': int(time.time()) - 60, 'exp': int(time.time()) + 600, 'iss': os.environ['APP_ID']}).encode('utf-8')).decode('utf-8').rstrip('=')
+
+            message = f'{header}.{payload}'.encode('utf-8')
+            signature = base64.urlsafe_b64encode(private_key.sign(message, padding.PKCS1v15(), hashes.SHA256())).decode('utf-8').rstrip('=')
+
+            print(f'{header}.{payload}.{signature}')
         run: |
           # ================================================================
           # 1. HELPER FUNCTION: GENERATE ON-DEMAND LIVE APP TOKENS (PYTHON)
@@ -32,25 +49,8 @@ jobs:
             export CLEAN_KEY=$(echo "${{ secrets.APP_PRIVATE_KEY }}" | sed 's/\\n/\n/g')
             export LOCAL_ORG=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
             
-            # Using clean EOF marker to avoid multi-line string quote clashing
-            JWT=$(python3 << 'EOF'
-import os, time, base64, json
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import padding
-from cryptography.hazmat.primitives import hashes
-
-key_data = os.environ['CLEAN_KEY'].encode('utf-8')
-private_key = serialization.load_pem_private_key(key_data, password=None)
-
-header = base64.urlsafe_b64encode(json.dumps({'alg': 'RS256', 'typ': 'JWT'}).encode('utf-8')).decode('utf-8').rstrip('=')
-payload = base64.urlsafe_b64encode(json.dumps({'iat': int(time.time()) - 60, 'exp': int(time.time()) + 600, 'iss': os.environ['APP_ID']}).encode('utf-8')).decode('utf-8').rstrip('=')
-
-message = f'{header}.{payload}'.encode('utf-8')
-signature = base64.urlsafe_b64encode(private_key.sign(message, padding.PKCS1v15(), hashes.SHA256())).decode('utf-8').rstrip('=')
-
-print(f'{header}.{payload}.{signature}')
-EOF
-)
+            # Execute the string variable cleanly without heredoc margin bugs
+            JWT=$(python3 -c "$TOKEN_SCRIPT")
             
             INST_ID=$(curl -s -X GET -H "Authorization: Bearer $JWT" -H "Accept: application/vnd.github+json" "https://github.com" | jq -r '.id')
             curl -s -X POST -H "Authorization: Bearer $JWT" -H "Accept: application/vnd.github+json" "https://github.com" | jq -r '.token'
