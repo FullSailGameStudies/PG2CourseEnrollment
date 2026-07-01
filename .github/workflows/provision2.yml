@@ -24,6 +24,10 @@ jobs:
         with:
           client-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          # This expands the token's scope to both the intake repo AND the private template repo
+          repositories: |
+            PG2CourseEnrollment
+            PG2StudentRepo26.7
       # ================================================================
 
       - name: Parse Configuration, Validate Passcode, and Check Roster Limit
