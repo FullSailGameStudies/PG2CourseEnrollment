@@ -2,7 +2,7 @@ name: Provision Student Repository
 
 on:
   issues:
-    types: [opened, labeled]
+    types: [opened]
   
 # Don't need this anymore since we're not updating the txt file, just reading it
 # concurrency:
