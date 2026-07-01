@@ -32,17 +32,20 @@ jobs:
             # Clean and reassemble multi-line structural RSA private key
             CLEAN_KEY=$(echo "${{ secrets.APP_PRIVATE_KEY }}" | sed 's/\\n/\n/g')
             
-            # Build cryptographic header metadata payloads
+            # Extract the organization name parameter early for token routing
+            LOCAL_ORG=$(grep "# ORG_NAME:" codes.txt | head -n1 | sed 's/# ORG_NAME: //g' | tr -d '[:space:]')
+            
+            # Build cryptographic header and payload metadata for the JWT
             JWT_HDR=$(echo -n '{"alg":"RS256","typ":"JWT"}' | openssl base64 -e -A | tr -d '=' | tr '/+' '_-')
             JWT_PAY=$(echo -n "{\"iat\":$(($(date +%s)-60)),\"exp\":$(($(date +%s)+600)),\"iss\":\"$APP_ID\"}" | openssl base64 -e -A | tr -d '=' | tr '/+' '_-')
             JWT_SIG=$(echo -n "$JWT_HDR.$JWT_PAY" | openssl dgst -sha256 -sign <(echo "$CLEAN_KEY") | openssl base64 -e -A | tr -d '=' | tr '/+' '_-')
             JWT="$JWT_HDR.$JWT_PAY.$JWT_SIG"
             
-            # Fetch raw structural installation routing indices
-            INST_ID=$(curl -s -H "Authorization: Bearer $JWT" -H "Accept: application/vnd.github+json" "https://github.com" | jq '.[0].id')
+            # Explicitly target the Organization-level Installation ID
+            INST_ID=$(curl -s -H "Authorization: Bearer $JWT" -H "Accept: application/vnd.github+json" "https://github.com" | jq -r '.id')
             
-            # Generate the live installation token payload string
-            curl -s -X POST -H "Authorization: Bearer $JWT" -H "Accept: application/vnd.github+json" "https://://github.comINST_ID/access_tokens" | jq -r '.token'
+            # Generate the live installation token payload string with full Org scope
+            curl -s -X POST -H "Authorization: Bearer $JWT" -H "Accept: application/vnd.github+json" "https://github.com" | jq -r '.token'
           }
 
           # ================================================================
