@@ -20,7 +20,7 @@ jobs:
       # ==================== GENERATE ORG BOT TOKEN ====================
       - name: Generate GitHub App Installation Token
         id: app_token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
@@ -34,11 +34,11 @@ jobs:
           ISSUE_BODY: ${{ github.event.issue.body }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
-          EXPECTED_HASH=$(grep "# MONTHLY_CODE:" codes.txt | head -n1 | sed 's/# MONTHLY_CODE: //g' | tr -d '[:space:]')
-          MAX_LIMIT=$(grep "# MAX_REPOS:" codes.txt | head -n1 | sed 's/# MAX_REPOS: //g' | tr -d '[:space:]')
-          REPO_PREFIX=$(grep "# PREFIX:" codes.txt | head -n1 | sed 's/# PREFIX: //g' | tr -d '[:space:]')
-          TEMPLATE_NAME=$(grep "# TEMPLATE:" codes.txt | head -n1 | sed 's/# TEMPLATE: //g' | tr -d '[:space:]')
-          ORG_NAME=$(grep "# ORG_NAME:" codes.txt | head -n1 | sed 's/# ORG_NAME: //g' | tr -d '[:space:]')
+          EXPECTED_HASH=$(grep "# MONTHLY_CODE:" pg2Info.txt | head -n1 | sed 's/# MONTHLY_CODE: //g' | tr -d '[:space:]')
+          MAX_LIMIT=$(grep "# MAX_REPOS:" pg2Info.txt | head -n1 | sed 's/# MAX_REPOS: //g' | tr -d '[:space:]')
+          REPO_PREFIX=$(grep "# PREFIX:" pg2Info.txt | head -n1 | sed 's/# PREFIX: //g' | tr -d '[:space:]')
+          TEMPLATE_NAME=$(grep "# TEMPLATE:" pg2Info.txt | head -n1 | sed 's/# TEMPLATE: //g' | tr -d '[:space:]')
+          ORG_NAME=$(grep "# ORG_NAME:" pg2Info.txt | head -n1 | sed 's/# ORG_NAME: //g' | tr -d '[:space:]')
           
           # Calculate the target expected cryptographic hash
           # EXPECTED_HASH=$(echo -n "$EXPECTED_CODE" | sha256sum | awk '{print $1}')
