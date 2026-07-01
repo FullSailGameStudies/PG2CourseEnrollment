@@ -1,7 +1,7 @@
 name: Request Assignment Repository
 description: Instantly provision your private assignment repository using the shared monthly claim code.
 title: "Private Repository Request"
-labels: ["provision-repo"]
+labels: ["provision-repo2"]
 body:
   - type: markdown
     attributes:
