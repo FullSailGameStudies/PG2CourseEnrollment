@@ -29,11 +29,11 @@ jobs:
       - name: Parse Configuration, Validate Passcode, and Check Roster Limit
         id: safety_check
         env:
-          # Use the newly minted App Token to represent the Organization!
           GH_TOKEN: ${{ steps.app_token.outputs.token }}
           ISSUE_BODY: ${{ github.event.issue.body }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
+          # 1. Parse the global configuration metadata variables dynamically from codes.txt
           EXPECTED_HASH=$(grep "# MONTHLY_CODE:" pg2Info.txt | head -n1 | sed 's/# MONTHLY_CODE: //g' | tr -d '[:space:]')
           MAX_LIMIT=$(grep "# MAX_REPOS:" pg2Info.txt | head -n1 | sed 's/# MAX_REPOS: //g' | tr -d '[:space:]')
           REPO_PREFIX=$(grep "# PREFIX:" pg2Info.txt | head -n1 | sed 's/# PREFIX: //g' | tr -d '[:space:]')
@@ -42,14 +42,14 @@ jobs:
           
           # Calculate the target expected cryptographic hash
           # EXPECTED_HASH=$(echo -n "$EXPECTED_CODE" | sha256sum | awk '{print $1}')
-          
+
           # 2. Parse the code the student entered into the issue form field
           STUDENT_CODE=$(echo "$ISSUE_BODY" | sed -n '/### Claim Code/{n;p;}' | tr -d '[:space:]')
           if [ -z "$STUDENT_CODE" ] || [ "$STUDENT_CODE" = "_No_response_" ]; then
             STUDENT_CODE=$(echo "$ISSUE_BODY" | sed -n '/### Claim Code/{n;n;p;}' | tr -d '[:space:]')
           fi
           STUDENT_HASH=$(echo -n "$STUDENT_CODE" | sha256sum | awk '{print $1}')
-          
+
           # Create an obfuscated version of the issue body, removing the claim code
           REDACTED_BODY=$(echo "$ISSUE_BODY" | sed "s/$STUDENT_CODE/[used claim code]/g")
           
@@ -83,6 +83,7 @@ jobs:
           else
             echo "LIMIT_EXCEEDED=false" >> $GITHUB_ENV
             
+            # Map out global workspace names for downstream creation steps
             STUDENT_USER="${{ github.event.issue.user.login }}"
             echo "DYNAMIC_REPO_NAME=${REPO_PREFIX}${STUDENT_USER}" >> $GITHUB_ENV
             echo "DYNAMIC_TEMPLATE_NAME=$TEMPLATE_NAME" >> $GITHUB_ENV
@@ -95,8 +96,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
-          gh issue comment $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --body "❌ **Repository Creation Failed:** The monthly claim code you entered is incorrect. Please verify the code from the course module and try opening a new issue."
-          gh issue close $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --reason "not_planned"
+          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "❌ **Repository Creation Failed:** The monthly claim code you entered is incorrect. Please verify the code from the course module and try opening a new issue."
+          gh issue close "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --reason "not_planned"
           exit 1
 
       - name: Handle Cap Limit Exceeded
@@ -105,14 +106,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
-          gh issue comment $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --body "🛑 **Workspace Capacity Limit Reached:** All available student workspaces for this active assignment cycle have already been claimed. Please contact your instructor or TA directly to request a seat override allocation."
-          gh issue close $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --reason "not_planned"
+          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "🛑 **Workspace Capacity Limit Reached:** All available student workspaces for this active assignment cycle have already been claimed. Please contact your instructor or TA directly to request a seat override allocation."
+          gh issue close "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --reason "not_planned"
           exit 1
 
       - name: Check If Repository Already Exists
         if: env.AUTH_FAILED == 'false' && env.LIMIT_EXCEEDED == 'false'
         env:
-          GH_TOKEN:  ${{ steps.app_token.outputs.token }}
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
           ORG: ${{ env.DYNAMIC_ORG_NAME }}
           NEW_REPO_NAME: ${{ env.DYNAMIC_REPO_NAME }}
         run: |
@@ -146,40 +147,20 @@ jobs:
           gh issue close $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --reason "completed"
           exit 0 # Exit gracefully without failing the workflow run entirely
 
-      - name: Generate and Invite
+      - name: Generate, Mirror Template, and Invite Student
         # This step only executes if the passcode is correct AND the repo doesn't exist yet
         if: env.AUTH_FAILED == 'false' && env.LIMIT_EXCEEDED == 'false' && env.REPO_EXISTS == 'false'
         env:
-          GH_TOKEN:  ${{ steps.app_token.outputs.token }}
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
           ORG: ${{ env.DYNAMIC_ORG_NAME }}
           TEMPLATE_REPO: ${{ env.DYNAMIC_TEMPLATE_NAME }}
           STUDENT: ${{ github.event.issue.user.login }}
           NEW_REPO_NAME: ${{ env.DYNAMIC_REPO_NAME }}
         run: |
-          echo "Creating private repository $NEW_REPO_NAME from template $TEMPLATE_REPO..."
-          gh api \
-            --method POST \
-            -H "Accept: application/vnd.github+json" \
-            /repos/$ORG/$TEMPLATE_REPO/generate \
-            -f owner="$ORG" \
-            -f name="$NEW_REPO_NAME" \
-            -F private=true
-            
-          # Loops up to 15 times, waiting 3 seconds per attempt (45 seconds total max).
-          # It queries the branches endpoint. If it returns an empty bracket '[]' or errors out, it continues waiting.
-          echo "Waiting for GitHub to finish generating files from the template..."
-          for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
-            BRANCH_CHECK=$(gh api /repos/$ORG/$NEW_REPO_NAME/branches --jq '.[].name' 2>/dev/null || true)
-            if [ -n "$BRANCH_CHECK" ]; then
-              echo "Repository files and branches initialized successfully!"
-              break
-            fi
-            echo "Template copy in progress... waiting 3 seconds (Attempt $i/15)"
-            sleep 3
-          done
+          echo "Creating a fresh, blank private repository: $NEW_REPO_NAME..."
+          gh repo create "$ORG/$NEW_REPO_NAME" --private
 
-          # Add an extra safety cushion sleep to ensure files are fully flushed to disk
-          sleep 5
+          sleep 3
 
           echo "Adding student $STUDENT as a collaborator..."
           # This execution line remains perfectly secure! 
@@ -189,39 +170,35 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             /repos/$ORG/$NEW_REPO_NAME/collaborators/$STUDENT \
             -f permission='write'
-        shell: bash
 
-      - name: Initialize Feedback Branch and PR
-        if: env.AUTH_FAILED == 'false' && env.LIMIT_EXCEEDED == 'false' && env.REPO_EXISTS == 'false'
-        env:
-          GH_TOKEN:  ${{ steps.app_token.outputs.token }}
-          ORG: ${{ env.DYNAMIC_ORG_NAME }}
-          NEW_REPO_NAME: ${{ env.DYNAMIC_REPO_NAME }}
-        run: |
+          echo "Configuring local git bot credentials..."
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@://github.com"
+
+          echo "Cloning the private template repository..."
+          git clone "https://x-access-token:${GH_TOKEN}@://github.com{ORG}/${TEMPLATE_REPO}.git"
           
-          echo "Cloning repository: $NEW_REPO_NAME..."
-          git clone "https://x-access-token:${GH_TOKEN}@://github.com{ORG}/${NEW_REPO_NAME}.git"
+          echo "Re-linking template source tree to the new student repository..."
+          cd "$TEMPLATE_REPO"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@://github.com{ORG}/${NEW_REPO_NAME}.git"
           
-          cd "$NEW_REPO_NAME"
-          git checkout master
+          echo "Pushing starter files to the student workspace..."
+          # Detect the default branch name dynamically to accommodate master or main
+          DEFAULT_BRANCH=$(git branch --show-current)
+          git push -u origin "$DEFAULT_BRANCH"
+
+          echo "Initializing grading and feedback environment branches..."
           git checkout -b feedback
           git commit --allow-empty -m "Initialize assignment feedback environment"
           git push origin feedback
-          
-          # Create an empty commit so the PR has something to compare against          
-          git checkout master
-          git commit --allow-empty -m "Initialize assignment feedback environment"
-          git push origin master
-          
+
           echo "Opening feedback tracking pull request..."
           gh pr create \
             --repo "${ORG}/${NEW_REPO_NAME}" \
             --title "Grading & Feedback" \
             --body "This Pull Request tracks your assignment progress. Instructors will leave reviews here. Do not close or merge." \
             --base "feedback" \
-            --head "master"
+            --head "$DEFAULT_BRANCH"
 
       - name: Close Issue and Reply to Student
         if: env.AUTH_FAILED == 'false' && env.LIMIT_EXCEEDED == 'false' && env.REPO_EXISTS == 'false'
@@ -232,5 +209,5 @@ jobs:
           STUDENT: ${{ github.event.issue.user.login }}
           NEW_REPO_NAME: ${{ env.DYNAMIC_REPO_NAME }}
         run: |
-          gh issue comment $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --body "@$STUDENT Private repository successfully configured at **https://github.com/${ORG}/${NEW_REPO_NAME}**!"
-          gh issue close $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --reason "completed"
+          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "@$STUDENT Private repository successfully configured at **https://github.com/${ORG}/${NEW_REPO_NAME}**!"
+          gh issue close "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --reason "completed"
