@@ -29,37 +29,31 @@ jobs:
           # 1. HELPER FUNCTION: GENERATE ON-DEMAND LIVE APP TOKENS (PYTHON)
           # ================================================================
           get_live_token() {
-            # Normalize and pass the raw multi-line key into a clean environment string
             export CLEAN_KEY=$(echo "${{ secrets.APP_PRIVATE_KEY }}" | sed 's/\\n/\n/g')
             export LOCAL_ORG=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
             
-            # Use Python's native libraries to compute a flawless cryptographic JWT
-            JWT=$(python3 -c "
-import os, time, base64, json, hmac, hashlib
+            # Using clean EOF marker to avoid multi-line string quote clashing
+            JWT=$(python3 << 'EOF'
+import os, time, base64, json
 from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives import hashes
 
-# 1. Load the private key safely using standard cryptographic engines
 key_data = os.environ['CLEAN_KEY'].encode('utf-8')
 private_key = serialization.load_pem_private_key(key_data, password=None)
 
-# 2. Build the exact header and expiration payload segments
 header = base64.urlsafe_b64encode(json.dumps({'alg': 'RS256', 'typ': 'JWT'}).encode('utf-8')).decode('utf-8').rstrip('=')
 payload = base64.urlsafe_b64encode(json.dumps({'iat': int(time.time()) - 60, 'exp': int(time.time()) + 600, 'iss': os.environ['APP_ID']}).encode('utf-8')).decode('utf-8').rstrip('=')
 
-# 3. Sign the combined payload token via SHA-256
 message = f'{header}.{payload}'.encode('utf-8')
-from cryptography.hazmat.primitives.asymmetric import padding
-from cryptography.hazmat.primitives import hashes
 signature = base64.urlsafe_b64encode(private_key.sign(message, padding.PKCS1v15(), hashes.SHA256())).decode('utf-8').rstrip('=')
 
 print(f'{header}.{payload}.{signature}')
-")
+EOF
+)
             
-            # Query the Organization-level Installation ID securely
-            INST_ID=$(curl -s -X GET -H "Authorization: Bearer $JWT" -H "Accept: application/vnd.github+json" "https://api.github.com/orgs/$LOCAL_ORG/installation" | jq -r '.id')
-            
-            # Generate the live installation token payload string with full Org scope
-            curl -s -X POST -H "Authorization: Bearer $JWT" -H "Accept: application/vnd.github+json" "https://api.github.com/app/installations/$INST_ID/access_tokens" | jq -r '.token'
+            INST_ID=$(curl -s -X GET -H "Authorization: Bearer $JWT" -H "Accept: application/vnd.github+json" "https://github.com" | jq -r '.id')
+            curl -s -X POST -H "Authorization: Bearer $JWT" -H "Accept: application/vnd.github+json" "https://github.com" | jq -r '.token'
           }
 
           # ================================================================
