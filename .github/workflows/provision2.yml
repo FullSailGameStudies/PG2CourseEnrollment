@@ -36,7 +36,7 @@ jobs:
 
 
       - name: Parse Configuration, Validate Passcode, and Check Roster Limit
-        id: safety_check
+        id: code_check
         env:
           # Use the newly minted App Token to represent the Organization!
           GH_TOKEN: ${{ steps.app_token.outputs.token }}
@@ -101,7 +101,7 @@ jobs:
       - name: Handle Invalid Passcode
         if: env.AUTH_FAILED == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
           gh issue comment $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --body "❌ **Repository Creation Failed:** The monthly claim code you entered is incorrect. Please verify the code from the course module and try opening a new issue."
@@ -111,7 +111,7 @@ jobs:
       - name: Handle Cap Limit Exceeded
         if: env.LIMIT_EXCEEDED == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
           gh issue comment $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --body "🛑 **Workspace Capacity Limit Reached:** All available student workspaces for this active assignment cycle have already been claimed. Please contact your instructor or TA directly to request a seat override allocation."
@@ -136,7 +136,7 @@ jobs:
       - name: Handle Duplicate Repository Request
         if: env.REPO_EXISTS == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ORG: ${{ env.DYNAMIC_ORG_NAME }}
           STUDENT: ${{ github.event.issue.user.login }}
@@ -158,6 +158,7 @@ jobs:
       - name: Generate and Invite
         # This step only executes if the passcode is correct AND the repo doesn't exist yet
         if: env.AUTH_FAILED == 'false' && env.LIMIT_EXCEEDED == 'false' && env.REPO_EXISTS == 'false'
+        shell: bash
         env:
           GH_TOKEN:  ${{ steps.app_token.outputs.token }}
           ORG: ${{ env.DYNAMIC_ORG_NAME }}
@@ -165,6 +166,10 @@ jobs:
           STUDENT: ${{ github.event.issue.user.login }}
           NEW_REPO_NAME: ${{ env.DYNAMIC_REPO_NAME }}
         run: |
+  
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@://github.com"
+
           echo "Creating private repository $NEW_REPO_NAME from template $TEMPLATE_REPO..."
           gh api \
             --method POST \
@@ -201,6 +206,7 @@ jobs:
 
       - name: Initialize Feedback Branch and PR
         if: env.AUTH_FAILED == 'false' && env.LIMIT_EXCEEDED == 'false' && env.REPO_EXISTS == 'false'
+        shell: bash
         env:
           GH_TOKEN:  ${{ steps.app_token.outputs.token }}
           ORG: ${{ env.DYNAMIC_ORG_NAME }}
