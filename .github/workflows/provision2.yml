@@ -44,12 +44,13 @@ jobs:
           GH_TOKEN: ${{ steps.app_token.outputs.token }}
           ISSUE_BODY: ${{ github.event.issue.body }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ORG: ${{ env.ORG_NAME }}
         run: |
           EXPECTED_HASH=$(grep "# MONTHLY_CODE:" pg2Info.txt | head -n1 | sed 's/# MONTHLY_CODE: //g' | tr -d '[:space:]')
           MAX_LIMIT=$(grep "# MAX_REPOS:" pg2Info.txt | head -n1 | sed 's/# MAX_REPOS: //g' | tr -d '[:space:]')
           REPO_PREFIX=$(grep "# PREFIX:" pg2Info.txt | head -n1 | sed 's/# PREFIX: //g' | tr -d '[:space:]')
           TEMPLATE_NAME=$(grep "# TEMPLATE:" pg2Info.txt | head -n1 | sed 's/# TEMPLATE: //g' | tr -d '[:space:]')
-          ORG_NAME=$(grep "# ORG_NAME:" pg2Info.txt | head -n1 | sed 's/# ORG_NAME: //g' | tr -d '[:space:]')
+          # ORG_NAME=$(grep "# ORG_NAME:" pg2Info.txt | head -n1 | sed 's/# ORG_NAME: //g' | tr -d '[:space:]')
           
           # Calculate the target expected cryptographic hash
           # EXPECTED_HASH=$(echo -n "$EXPECTED_CODE" | sha256sum | awk '{print $1}')
@@ -80,13 +81,13 @@ jobs:
 
           # 4. Capacity Check: Count how many repositories already use our prefix inside the Org  
           # This pulls up to 1000 repos from the Org and uses grep to count names starting with the repo prefix
-          CURRENT_COUNT=$(GH_TOKEN="$GH_TOKEN" gh repo list "$ORG_NAME" --source --limit 1000 --json name --jq '.[].name' | grep "^$REPO_PREFIX" | wc -l | tr -d '[:space:]')
+          CURRENT_COUNT=$(GH_TOKEN="$GH_TOKEN" gh repo list "$ORG" --source --limit 1000 --json name --jq '.[].name' | grep "^$REPO_PREFIX" | wc -l | tr -d '[:space:]')
           
           if [ -z "$CURRENT_COUNT" ]; then
             CURRENT_COUNT=0
           fi
           
-          echo "Active repositories using prefix '$REPO_PREFIX' in '$ORG_NAME': $CURRENT_COUNT / $MAX_LIMIT"
+          echo "Active repositories using prefix '$REPO_PREFIX' in '$ORG': $CURRENT_COUNT / $MAX_LIMIT"
 
           if [ "$CURRENT_COUNT" -ge "$MAX_LIMIT" ]; then
             echo "LIMIT_EXCEEDED=true" >> $GITHUB_ENV
@@ -97,7 +98,7 @@ jobs:
             STUDENT_USER="${{ github.event.issue.user.login }}"
             echo "DYNAMIC_REPO_NAME=${REPO_PREFIX}${STUDENT_USER}" >> $GITHUB_ENV
             echo "DYNAMIC_TEMPLATE_NAME=$TEMPLATE_NAME" >> $GITHUB_ENV
-            echo "DYNAMIC_ORG_NAME=$ORG_NAME" >> $GITHUB_ENV
+            # echo "DYNAMIC_ORG_NAME=$ORG_NAME" >> $GITHUB_ENV
           fi
 
       - name: Handle Invalid Passcode
@@ -124,7 +125,7 @@ jobs:
         if: env.AUTH_FAILED == 'false' && env.LIMIT_EXCEEDED == 'false'
         env:
           GH_TOKEN:  ${{ steps.app_token.outputs.token }}
-          ORG: ${{ env.DYNAMIC_ORG_NAME }}
+          ORG: ${{ env.ORG_NAME }}
           NEW_REPO_NAME: ${{ env.DYNAMIC_REPO_NAME }}
         run: |
           # Check if the repository can be resolved by the GitHub CLI
@@ -140,7 +141,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app_token.outputs.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
-          ORG: ${{ env.DYNAMIC_ORG_NAME }}
+          ORG: ${{ env.ORG_NAME }}
           STUDENT: ${{ github.event.issue.user.login }}
           NEW_REPO_NAME: ${{ env.DYNAMIC_REPO_NAME }}
         run: |
@@ -163,7 +164,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN:  ${{ steps.app_token.outputs.token }}
-          ORG: ${{ env.DYNAMIC_ORG_NAME }}
+          ORG: ${{ env.ORG_NAME }}
           TEMPLATE_REPO: ${{ env.DYNAMIC_TEMPLATE_NAME }}
           STUDENT: ${{ github.event.issue.user.login }}
           NEW_REPO_NAME: ${{ env.DYNAMIC_REPO_NAME }}
@@ -211,7 +212,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN:  ${{ steps.app_token.outputs.token }}
-          ORG: ${{ env.DYNAMIC_ORG_NAME }}
+          ORG: ${{ env.ORG_NAME }}
           NEW_REPO_NAME: ${{ env.DYNAMIC_REPO_NAME }}
         run: |
           git config --global user.name "github-actions[bot]"
@@ -244,7 +245,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
-          ORG: ${{ env.DYNAMIC_ORG_NAME }}
+          ORG: ${{ env.ORG_NAME }}
           STUDENT: ${{ github.event.issue.user.login }}
           NEW_REPO_NAME: ${{ env.DYNAMIC_REPO_NAME }}
         run: |
