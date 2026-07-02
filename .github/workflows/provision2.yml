@@ -3,6 +3,10 @@ name: Provision Student Repository
 on:
   issues:
     types: [opened]
+
+permissions:
+  issues: write
+  contents: read
   
 # Don't need this anymore since we're not updating the txt file, just reading it
 # concurrency:
@@ -14,51 +18,31 @@ jobs:
     if: contains(github.event.issue.labels.*.name, 'provision-repo2')
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Enrollment Repository
-        uses: actions/checkout@v5
+      # ==================== GENERATE ORG BOT TOKEN ====================
+      - name: Generate GitHub App Installation Token
+        id: app_token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ env.ORG_NAME }}   # make scope beyond this repo so templates are accessible
+      # ================================================================
 
-      - name: Universal Classroom Provisioning Engine
+
+      - name: Checkout Enrollment Repository
+        uses: actions/checkout@v7
+        with:
+          token: ${{ steps.app_token.outputs.token }}
+
+
+      - name: Parse Configuration, Validate Passcode, and Check Roster Limit
+        id: safety_check
         env:
-          APP_ID: ${{ secrets.APP_ID }}
-          APP_PRIVATE_KEY: "---BEGIN_KEY---\n${{ secrets.APP_PRIVATE_KEY }}\n---END_KEY---"
+          # Use the newly minted App Token to represent the Organization!
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
           ISSUE_BODY: ${{ github.event.issue.body }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # 1. Store the entire Python script safely as a clean YAML multi-line string
-          TOKEN_SCRIPT: |
-            import os, time, base64, json
-            from cryptography.hazmat.primitives import serialization
-            from cryptography.hazmat.primitives.asymmetric import padding
-            from cryptography.hazmat.primitives import hashes
-
-            key_data = os.environ['CLEAN_KEY'].encode('utf-8')
-            private_key = serialization.load_pem_private_key(key_data, password=None)
-
-            header = base64.urlsafe_b64encode(json.dumps({'alg': 'RS256', 'typ': 'JWT'}).encode('utf-8')).decode('utf-8').rstrip('=')
-            payload = base64.urlsafe_b64encode(json.dumps({'iat': int(time.time()) - 60, 'exp': int(time.time()) + 600, 'iss': os.environ['APP_ID']}).encode('utf-8')).decode('utf-8').rstrip('=')
-
-            message = f'{header}.{payload}'.encode('utf-8')
-            signature = base64.urlsafe_b64encode(private_key.sign(message, padding.PKCS1v15(), hashes.SHA256())).decode('utf-8').rstrip('=')
-
-            print(f'{header}.{payload}.{signature}')
         run: |
-          # ================================================================
-          # 1. HELPER FUNCTION: GENERATE ON-DEMAND LIVE APP TOKENS (PYTHON)
-          # ================================================================
-          get_live_token() {
-            export CLEAN_KEY=$(echo "${{ secrets.APP_PRIVATE_KEY }}" | sed 's/\\n/\n/g')
-            export LOCAL_ORG=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-            
-            # Execute the string variable cleanly without heredoc margin bugs
-            JWT=$(python3 -c "$TOKEN_SCRIPT")
-            
-            INST_ID=$(curl -s -X GET -H "Authorization: Bearer $JWT" -H "Accept: application/vnd.github+json" "https://github.com" | jq -r '.id')
-            curl -s -X POST -H "Authorization: Bearer $JWT" -H "Accept: application/vnd.github+json" "https://github.com" | jq -r '.token'
-          }
-
-          # ================================================================
-          # 2. PARSE ROSTER PARAMETERS & SECURITY SAFEGUARDS
-          # ================================================================
           EXPECTED_HASH=$(grep "# MONTHLY_CODE:" pg2Info.txt | head -n1 | sed 's/# MONTHLY_CODE: //g' | tr -d '[:space:]')
           MAX_LIMIT=$(grep "# MAX_REPOS:" pg2Info.txt | head -n1 | sed 's/# MAX_REPOS: //g' | tr -d '[:space:]')
           REPO_PREFIX=$(grep "# PREFIX:" pg2Info.txt | head -n1 | sed 's/# PREFIX: //g' | tr -d '[:space:]')
@@ -67,7 +51,7 @@ jobs:
           
           # Calculate the target expected cryptographic hash
           # EXPECTED_HASH=$(echo -n "$EXPECTED_CODE" | sha256sum | awk '{print $1}')
-
+          
           # 2. Parse the code the student entered into the issue form field
           STUDENT_CODE=$(echo "$ISSUE_BODY" | sed -n '/### Claim Code/{n;p;}' | tr -d '[:space:]')
           if [ -z "$STUDENT_CODE" ] || [ "$STUDENT_CODE" = "_No_response_" ]; then
@@ -81,85 +65,180 @@ jobs:
           # overwrite the public text record to protect claim code
           gh issue edit "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "$REDACTED_BODY"       
 
-          # Validate monthly passcode entry match
+
+          # 3. Security Check: Validate Passcode Hash
           if [ "$STUDENT_HASH" != "$EXPECTED_HASH" ]; then
-            gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "❌ **Repository Creation Failed:** The monthly claim code you entered is incorrect. Please verify the code from the course module and try opening a new issue."
-            gh issue close "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --reason "not_planned"
+            echo "AUTH_FAILED=true" >> $GITHUB_ENV
             echo "::error::Invalid monthly class claim code submitted."
             echo $STUDENT_HASH
             echo $EXPECTED_HASH
-            exit 1
-          fi
-
-          # Request fresh token block to run capacity registry checks
-          MINTED_TOKEN=$(get_live_token)
-
-          # Verify class seat limits
-          # This pulls up to 1000 repos from the Org and uses grep to count names starting with the repo prefix
-          CURRENT_COUNT=$(GH_TOKEN="$MINTED_TOKEN" gh repo list "$ORG_NAME" --source --limit 1000 --json name --jq '.[].name' | grep "^$REPO_PREFIX" | wc -l | tr -d '[:space:]')
-          if [ -z "$CURRENT_COUNT" ]; then CURRENT_COUNT=0; fi
-          echo "Active slots claimed: $CURRENT_COUNT / $MAX_LIMIT"
-          
-          echo "Active repositories using prefix '$REPO_PREFIX' in '$ORG_NAME': $CURRENT_COUNT / $MAX_LIMIT"
-          if [ "$CURRENT_COUNT" -ge "$MAX_LIMIT" ]; then
-            echo "::error::Class capacity seat registration limit reached."
-            gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "🛑 **Workspace Capacity Limit Reached:** All available student workspaces for this active assignment cycle have already been claimed. Please contact your instructor or TA directly to request a seat override allocation."
-            gh issue close "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --reason "not_planned"
-            exit 1
-          fi
-
-          # Form individual tracking usernames
-          STUDENT_USER="${{ github.event.issue.user.login }}"
-          NEW_REPO_NAME="${REPO_PREFIX}${STUDENT_USER}"
-
-          if GH_TOKEN="$MINTED_TOKEN" gh repo view "$ORG_NAME/$NEW_REPO_NAME" >/dev/null 2>&1; then
-            gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "⚠️ @$STUDENT_USER You have already requested an assignment repository for this project. Your active private workspace is located here: **https://github.com/${ORG}/${NEW_REPO_NAME}**"
-            gh issue close "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --reason "completed"
             exit 0
           fi
+          echo "AUTH_FAILED=false" >> $GITHUB_ENV
 
-          # ================================================================
-          # 3. WORKSPACE PROVISIONING & FILE TREE REPLICATION
-          # ================================================================
-          echo "Creating private repository: $NEW_REPO_NAME..."
-          GH_TOKEN="$MINTED_TOKEN" gh repo create "$ORG_NAME/$NEW_REPO_NAME" --private
+          # 4. Capacity Check: Count how many repositories already use our prefix inside the Org  
+          # This pulls up to 1000 repos from the Org and uses grep to count names starting with the repo prefix
+          CURRENT_COUNT=$(GH_TOKEN="$GH_TOKEN" gh repo list "$ORG_NAME" --source --limit 1000 --json name --jq '.[].name' | grep "^$REPO_PREFIX" | wc -l | tr -d '[:space:]')
+          
+          if [ -z "$CURRENT_COUNT" ]; then
+            CURRENT_COUNT=0
+          fi
+          
+          echo "Active repositories using prefix '$REPO_PREFIX' in '$ORG_NAME': $CURRENT_COUNT / $MAX_LIMIT"
+
+          if [ "$CURRENT_COUNT" -ge "$MAX_LIMIT" ]; then
+            echo "LIMIT_EXCEEDED=true" >> $GITHUB_ENV
+            echo "::error::Class capacity seat registration limit reached."
+          else
+            echo "LIMIT_EXCEEDED=false" >> $GITHUB_ENV
+            
+            STUDENT_USER="${{ github.event.issue.user.login }}"
+            echo "DYNAMIC_REPO_NAME=${REPO_PREFIX}${STUDENT_USER}" >> $GITHUB_ENV
+            echo "DYNAMIC_TEMPLATE_NAME=$TEMPLATE_NAME" >> $GITHUB_ENV
+            echo "DYNAMIC_ORG_NAME=$ORG_NAME" >> $GITHUB_ENV
+          fi
+
+      - name: Handle Invalid Passcode
+        if: env.AUTH_FAILED == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          gh issue comment $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --body "❌ **Repository Creation Failed:** The monthly claim code you entered is incorrect. Please verify the code from the course module and try opening a new issue."
+          gh issue close $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --reason "not_planned"
+          exit 1
+
+      - name: Handle Cap Limit Exceeded
+        if: env.LIMIT_EXCEEDED == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          gh issue comment $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --body "🛑 **Workspace Capacity Limit Reached:** All available student workspaces for this active assignment cycle have already been claimed. Please contact your instructor or TA directly to request a seat override allocation."
+          gh issue close $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --reason "not_planned"
+          exit 1
+
+      - name: Check If Repository Already Exists
+        if: env.AUTH_FAILED == 'false' && env.LIMIT_EXCEEDED == 'false'
+        env:
+          GH_TOKEN:  ${{ steps.app_token.outputs.token }}
+          ORG: ${{ env.DYNAMIC_ORG_NAME }}
+          NEW_REPO_NAME: ${{ env.DYNAMIC_REPO_NAME }}
+        run: |
+          # Check if the repository can be resolved by the GitHub CLI
+          if gh repo view "$ORG/$NEW_REPO_NAME" > /dev/null 2>&1; then
+            echo "REPO_EXISTS=true" >> $GITHUB_ENV
+            echo "::warning::Repository $ORG/$NEW_REPO_NAME already exists. Skipping creation."
+          else
+            echo "REPO_EXISTS=false" >> $GITHUB_ENV
+          fi
+
+      - name: Handle Duplicate Repository Request
+        if: env.REPO_EXISTS == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ORG: ${{ env.DYNAMIC_ORG_NAME }}
+          STUDENT: ${{ github.event.issue.user.login }}
+          NEW_REPO_NAME: ${{ env.DYNAMIC_REPO_NAME }}
+        run: |
+          # gh issue comment $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --body "⚠️ @$STUDENT You have already requested an assignment repository for this project. Your active private workspace is located here: **https://github.com**"
+          
+          gh issue comment $ISSUE_NUMBER \
+            --repo "$GITHUB_REPOSITORY" \
+            --body "⚠️ @$STUDENT You have already requested an assignment repository for this project. 
+          
+          Your active private workspace is located here: **https://github.com/${ORG}/${NEW_REPO_NAME}**
+          
+          This duplicate request issue has been closed automatically to prevent overwriting your existing code."
+
+          gh issue close $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --reason "completed"
+          exit 0 # Exit gracefully without failing the workflow run entirely
+
+      - name: Generate and Invite
+        # This step only executes if the passcode is correct AND the repo doesn't exist yet
+        if: env.AUTH_FAILED == 'false' && env.LIMIT_EXCEEDED == 'false' && env.REPO_EXISTS == 'false'
+        env:
+          GH_TOKEN:  ${{ steps.app_token.outputs.token }}
+          ORG: ${{ env.DYNAMIC_ORG_NAME }}
+          TEMPLATE_REPO: ${{ env.DYNAMIC_TEMPLATE_NAME }}
+          STUDENT: ${{ github.event.issue.user.login }}
+          NEW_REPO_NAME: ${{ env.DYNAMIC_REPO_NAME }}
+        run: |
+          echo "Creating private repository $NEW_REPO_NAME from template $TEMPLATE_REPO..."
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            /repos/$ORG/$TEMPLATE_REPO/generate \
+            -f owner="$ORG" \
+            -f name="$NEW_REPO_NAME" \
+            -F private=true
+            
+          # Loops up to 15 times, waiting 3 seconds per attempt (45 seconds total max).
+          # It queries the branches endpoint. If it returns an empty bracket '[]' or errors out, it continues waiting.
+          echo "Waiting for GitHub to finish generating files from the template..."
+          for i in $(seq 1 15); do
+            BRANCH_CHECK=$(gh api /repos/$ORG/$NEW_REPO_NAME/branches --jq '.[].name' 2>/dev/null || true)
+            if [ -n "$BRANCH_CHECK" ]; then
+              echo "Repository files and branches initialized successfully!"
+              break
+            fi
+            echo "Template copy in progress... waiting 3 seconds (Attempt $i/15)"
+            sleep 3
+          done
+
+          # Add an extra safety cushion sleep to ensure files are fully flushed to disk
           sleep 5
 
-          # REQUEST A NEW FRESH TOKEN NOW THAT THE REPOSITORY ACTUALLY EXISTS IN THE INFRASTRUCTURE!
-          # This pulls a fresh scope token matching your updated organization catalog topology
-          MINTED_TOKEN=$(get_live_token)
+          echo "Adding student $STUDENT as a collaborator..."
+          # This execution line remains perfectly secure! 
+          # It grants individual student visibility while branding the invitation email from the Organization App name.
+          gh api \
+            --method PUT \
+            -H "Accept: application/vnd.github+json" \
+            /repos/$ORG/$NEW_REPO_NAME/collaborators/$STUDENT \
+            -f permission='write'
 
-          echo "Inviting student user account '$STUDENT_USER' to workspace..."
-          curl -s -X PUT -H "Authorization: token $MINTED_TOKEN" -H "Accept: application/vnd.github+json" \
-            "https://github.com" -d '{"permission":"write"}'
-
-          echo "Cloning structural starter files from template..."
+      - name: Initialize Feedback Branch and PR
+        if: env.AUTH_FAILED == 'false' && env.LIMIT_EXCEEDED == 'false' && env.REPO_EXISTS == 'false'
+        env:
+          GH_TOKEN:  ${{ steps.app_token.outputs.token }}
+          ORG: ${{ env.DYNAMIC_ORG_NAME }}
+          NEW_REPO_NAME: ${{ env.DYNAMIC_REPO_NAME }}
+        run: |
           git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.email "github-actions[bot]@://github.com"
           
-          git clone "https://x-access-token:${MINTED_TOKEN}@://github.com{ORG_NAME}/${TEMPLATE_NAME}.git"
-          cd "$TEMPLATE_NAME"
+          echo "Cloning repository: $NEW_REPO_NAME..."
+          git clone "https://x-access-token:${GH_TOKEN}@://github.com{ORG}/${NEW_REPO_NAME}.git"
           
-          # Detach origin pointer and sync to newly instantiated student path
-          git remote set-url origin "https://x-access-token:${MINTED_TOKEN}@://github.com{ORG_NAME}/${NEW_REPO_NAME}.git"
-          
-          DEFAULT_BRANCH=$(git branch --show-current)
-          git push -u origin "$DEFAULT_BRANCH"
-
-          # ================================================================
-          # 4. FEEDBACK CHANNELS & INITIAL CLEANUP CLOSURES
-          # ================================================================
-          echo "Setting up grading pull request channels..."
+          cd "$NEW_REPO_NAME"
+          git checkout master
           git checkout -b feedback
           git commit --allow-empty -m "Initialize assignment feedback environment"
           git push origin feedback
-
-          GH_TOKEN="$MINTED_TOKEN" gh pr create \
-            --repo "${ORG_NAME}/${NEW_REPO_NAME}" \
+          
+          # Create an empty commit so the PR has something to compare against          
+          git checkout master
+          git commit --allow-empty -m "Initialize assignment feedback environment"
+          git push origin master
+          
+          echo "Opening feedback tracking pull request..."
+          gh pr create \
+            --repo "${ORG}/${NEW_REPO_NAME}" \
             --title "Grading & Feedback" \
             --body "This Pull Request tracks your assignment progress. Instructors will leave reviews here. Do not close or merge." \
             --base "feedback" \
-            --head "$DEFAULT_BRANCH"
+            --head "master"
 
-          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body "@$STUDENT_USER Private repository successfully configured at **https://github.com/${ORG}/${NEW_REPO_NAME}**!"
-          gh issue close "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --reason "completed"
+      - name: Close Issue and Reply to Student
+        if: env.AUTH_FAILED == 'false' && env.LIMIT_EXCEEDED == 'false' && env.REPO_EXISTS == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ORG: ${{ env.DYNAMIC_ORG_NAME }}
+          STUDENT: ${{ github.event.issue.user.login }}
+          NEW_REPO_NAME: ${{ env.DYNAMIC_REPO_NAME }}
+        run: |
+          gh issue comment $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --body "@$STUDENT Private repository successfully configured at **https://github.com/${ORG}/${NEW_REPO_NAME}**!"
+          gh issue close $ISSUE_NUMBER --repo "$GITHUB_REPOSITORY" --reason "completed"
