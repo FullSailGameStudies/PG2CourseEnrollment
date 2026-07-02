@@ -17,6 +17,8 @@ jobs:
   create-repo:
     if: contains(github.event.issue.labels.*.name, 'provision-repo2')
     runs-on: ubuntu-latest
+    env:
+      ORG_NAME: "FullSailGameStudies"
     steps:
       # ==================== GENERATE ORG BOT TOKEN ====================
       - name: Generate GitHub App Installation Token
