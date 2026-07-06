@@ -49,7 +49,9 @@ Repositories have a month-specific prefix (e.g. `pg2-2607-`). To clone all repos
 gh repo list FullSailGameStudies --limit 1000 --json name,url --jq '.[] | "\(.name)\t\(.url)"'  | grep "^REPO_PREFIX" 
 
 # Clone all repos for the month into the current directory
-gh repo list FullSailGameStudies --limit 1000 --json name,url --jq '.[] | "\(.name)\t\(.url)"' | grep '^REPO_PREFIX' | awk '{print $2}' | xargs -I {} gh repo clone {} .
+# don't create upstream branch to the forked repo
+# each repo is created in its own folder
+gh repo list FullSailGameStudies --limit 1000 --json name,url --jq '.[] | "\(.name)\t\(.url)"' | grep '^REPO_PREFIX' | xargs -L 1 bash -c 'gh repo clone "$2" "$1" -- --no-upstream' _
 ```
 
 > **Tip:** If you need to clone into a specific folder, create it first and run the command from inside that folder. Each repo will be cloned into its own subdirectory named after the repo.
